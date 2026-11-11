@@ -6,6 +6,8 @@ import type {
   Preferences,
 } from "../shared/schema";
 import { topics, defaultPreferences } from "../shared/schema";
+import { openingExercise } from "../shared/guidance";
+import { GuidanceCard } from "./GuidanceCard";
 import type {
   Snapshot,
   SpeechInfo,
@@ -44,6 +46,7 @@ export default function App() {
   const [newConversation, setNewConversation] = useState(false);
   const [deleteId, setDeleteId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [guidanceSaving, setGuidanceSaving] = useState(false);
   const [progress, setProgress] = useState<Progress>();
   const [elapsed, setElapsed] = useState(0);
   const [speech, setSpeech] = useState<SpeechInfo>();
@@ -72,6 +75,12 @@ export default function App() {
   const transcript = useRef<HTMLDivElement>(null);
   const conversation = data?.conversations.find((item) => item.id === activeId);
   const preferences = data?.preferences ?? defaultPreferences;
+  const latestReply = [...turns]
+    .reverse()
+    .find((turn) => turn.status === "completed");
+  const opening = conversation?.guided
+    ? openingExercise(conversation)
+    : undefined;
   const selectedTurn =
     turns.find((turn) => turn.id === focusedTurn) ??
     [...turns].reverse().find((turn) => turn.status === "completed");
@@ -79,6 +88,37 @@ export default function App() {
     const snapshot = await api.snapshot();
     setData(snapshot);
     return snapshot;
+  }
+  async function changeGuided(guided: boolean) {
+    if (!conversation || guidanceSaving) return;
+    const { id, guided: previous } = conversation;
+    setGuidanceSaving(true);
+    setData(
+      (snapshot) =>
+        snapshot && {
+          ...snapshot,
+          conversations: snapshot.conversations.map((item) =>
+            item.id === id ? { ...item, guided } : item,
+          ),
+        },
+    );
+    try {
+      await api.setGuided({ id, guided });
+      await refresh();
+    } catch (error) {
+      setData(
+        (snapshot) =>
+          snapshot && {
+            ...snapshot,
+            conversations: snapshot.conversations.map((item) =>
+              item.id === id ? { ...item, guided: previous } : item,
+            ),
+          },
+      );
+      throw error;
+    } finally {
+      setGuidanceSaving(false);
+    }
   }
   async function run(operation: () => Promise<unknown>) {
     setError("");
@@ -172,8 +212,23 @@ export default function App() {
   );
   useEffect(() => {
     const element = transcript.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [turns, progress]);
+    if (!element) return;
+    if (!turns.length) {
+      element.scrollTop = 0;
+      return;
+    }
+    const latest = turns.at(-1);
+    const reply =
+      conversation?.guided && latest?.status === "completed"
+        ? element.querySelector<HTMLElement>(`[data-reply-id="${latest.id}"]`)
+        : null;
+    // Keep the new question visible instead of jumping below its long guide.
+    element.scrollTop = reply
+      ? element.scrollTop +
+        reply.getBoundingClientRect().top -
+        element.getBoundingClientRect().top
+      : element.scrollHeight;
+  }, [turns, progress, conversation?.guided]);
   async function stopAudio() {
     audioGeneration.current++;
     previewAllowed.current = false;
@@ -697,6 +752,18 @@ export default function App() {
                 <label className="translation-toggle">
                   <input
                     type="checkbox"
+                    aria-label="本次對話的引導模式"
+                    checked={conversation.guided}
+                    disabled={busy || guidanceSaving}
+                    onChange={(event) =>
+                      void run(() => changeGuided(event.target.checked))
+                    }
+                  />
+                  引導式對話
+                </label>
+                <label className="translation-toggle">
+                  <input
+                    type="checkbox"
                     checked={preferences.showChinese}
                     onChange={(event) =>
                       void run(() =>
@@ -711,7 +778,18 @@ export default function App() {
                 </label>
               </div>
               <div className="transcript" ref={transcript}>
-                {!turns.length && (
+                {opening && !latestReply && (
+                  <div className="guided-opening">
+                    <span className="eyebrow">開場練習 · 內建題目</span>
+                    <h2 lang="en">{opening.questionEnglish}</h2>
+                    <p className="muted">{opening.questionChinese}</p>
+                    <GuidanceCard
+                      key={conversation.id}
+                      guidance={opening.guidance}
+                    />
+                  </div>
+                )}
+                {!turns.length && !opening && (
                   <div className="conversation-intro">
                     <span className="mini-orb">✧</span>
                     <h2>
@@ -740,6 +818,7 @@ export default function App() {
                     </div>
                     {turn.feedback && (
                       <div
+                        data-reply-id={turn.id}
                         className={
                           "assistant-message " +
                           (selectedTurn?.id === turn.id ? "focused" : "")
@@ -791,6 +870,19 @@ export default function App() {
                             查看練習建議 →
                           </button>
                         </div>
+                        {conversation.guided &&
+                          latestReply?.id === turn.id &&
+                          (turn.feedback.guidance ? (
+                            <GuidanceCard
+                              key={turn.id}
+                              guidance={turn.feedback.guidance}
+                            />
+                          ) : (
+                            <p className="guidance-pending">
+                              引導式對話已開啟，從下一次 AI
+                              回覆開始顯示回答引導。
+                            </p>
+                          ))}
                       </div>
                     )}
                     {turn.status === "failed" && (
@@ -1144,10 +1236,12 @@ function NewConversation({
   onCreate: (input: {
     mode: "casual" | "topic";
     topic: string;
+    guided: boolean;
   }) => Promise<void>;
 }) {
   const [mode, setMode] = useState<"casual" | "topic">("casual");
   const [topic, setTopic] = useState("");
+  const [guided, setGuided] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   return (
@@ -1161,6 +1255,7 @@ function NewConversation({
             await onCreate({
               mode,
               topic: mode === "topic" ? topic.trim() : "",
+              guided,
             });
           } catch (error) {
             setError((error as Error).message);
@@ -1227,6 +1322,20 @@ function NewConversation({
             </label>
           </>
         )}
+        <label className="guided-choice">
+          <input
+            type="checkbox"
+            aria-label="開啟引導式對話"
+            checked={guided}
+            onChange={(event) => setGuided(event.target.checked)}
+          />
+          <span>
+            <strong>開啟引導式對話</strong>
+            <small>
+              英文開頭搭配中文選項，幫你想好回答的方向；需要時再展開進階引導。
+            </small>
+          </span>
+        </label>
         {error && (
           <p className="error-text" role="alert">
             {error}

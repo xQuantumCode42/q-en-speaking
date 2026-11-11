@@ -33,21 +33,22 @@ export class Store {
         "SELECT data FROM conversations ORDER BY json_extract(data,'$.updatedAt') DESC",
       )
       .all()
-      .map((row) => JSON.parse(row.data as string));
+      .map((row) => ({ guided: false, ...JSON.parse(row.data as string) }));
   }
   conversation(id: string): Conversation {
     const row = this.db
       .prepare("SELECT data FROM conversations WHERE id=?")
       .get(id);
     if (!row) throw new Error("對話不存在。");
-    return JSON.parse(row.data as string);
+    return { guided: false, ...JSON.parse(row.data as string) };
   }
-  create(mode: Conversation["mode"], topic: string) {
+  create(mode: Conversation["mode"], topic: string, guided = false) {
     const now = new Date().toISOString();
     const conversation: Conversation = {
       id: randomUUID(),
       mode,
       topic,
+      guided,
       title: mode === "casual" ? "日常閒聊" : topic,
       createdAt: now,
       updatedAt: now,
@@ -55,6 +56,13 @@ export class Store {
     this.db
       .prepare("INSERT INTO conversations VALUES(?,?)")
       .run(conversation.id, JSON.stringify(conversation));
+    return conversation;
+  }
+  setGuided(id: string, guided: boolean): Conversation {
+    const conversation = { ...this.conversation(id), guided };
+    this.db
+      .prepare("UPDATE conversations SET data=? WHERE id=?")
+      .run(JSON.stringify(conversation), id);
     return conversation;
   }
   turns(id: string): Turn[] {

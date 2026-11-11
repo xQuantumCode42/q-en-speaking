@@ -8,6 +8,7 @@ async function invoke<T>(channel: string, input?: unknown): Promise<T> {
 const api: API = {
   snapshot: () => invoke("snapshot"),
   createConversation: (input) => invoke("conversation:create", input),
+  setGuided: (input) => invoke("conversation:guidance", input),
   turns: (id) => invoke("conversation:turns", id),
   deleteConversation: (id) => invoke("conversation:delete", id),
   send: (input) => invoke("talk:send", input),

@@ -169,8 +169,20 @@ function handlers() {
   }));
   register("conversation:create", conversationInputSchema, (input) => {
     requireIdle();
-    return store.create(input.mode, input.mode === "casual" ? "" : input.topic);
+    return store.create(
+      input.mode,
+      input.mode === "casual" ? "" : input.topic,
+      input.guided,
+    );
   });
+  register(
+    "conversation:guidance",
+    z.object({ id, guided: z.boolean() }).strict(),
+    (input) => {
+      requireIdle();
+      return store.setGuided(input.id, input.guided);
+    },
+  );
   register("conversation:turns", id, (value) => store.turns(value));
   register("conversation:delete", id, (value) => {
     requireIdle();
@@ -325,7 +337,7 @@ function handlers() {
     ...whisper.performance,
     message: whisper.ready
       ? "本機 Whisper small.en 已就緒"
-      : "本機 Whisper 模型未就緒，請安裝完整的 1.0.1，或執行 npm run setup:speech。",
+      : "本機 Whisper 模型未就緒，請安裝完整版本，或執行 npm run setup:speech。",
   }));
   register(
     "speech:transcribe",

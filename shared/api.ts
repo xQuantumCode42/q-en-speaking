@@ -55,7 +55,9 @@ export interface API {
   createConversation(input: {
     mode: "casual" | "topic";
     topic: string;
+    guided?: boolean;
   }): Promise<Conversation>;
+  setGuided(input: { id: string; guided: boolean }): Promise<Conversation>;
   turns(conversationId: string): Promise<Turn[]>;
   deleteConversation(conversationId: string): Promise<void>;
   send(input: { conversationId: string; text: string }): Promise<Turn>;

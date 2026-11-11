@@ -1,10 +1,35 @@
 import { z } from "zod";
 export const id = z.string().uuid();
 const sentence = z.string().min(1).max(6000);
+const hint = z.string().trim().min(1).max(500);
+export const guidanceSchema = z
+  .object({
+    starterEnglish: hint,
+    starterChinese: hint,
+    options: z
+      .array(
+        z
+          .object({
+            chinese: hint,
+            keywords: z
+              .array(z.object({ english: hint, chinese: hint }).strict())
+              .min(1)
+              .max(4),
+            sampleEnglish: hint,
+            sampleChinese: hint,
+          })
+          .strict(),
+      )
+      .min(3)
+      .max(4),
+  })
+  .strict();
+export type Guidance = z.infer<typeof guidanceSchema>;
 export const feedbackSchema = z
   .object({
     replyEnglish: sentence,
     replyChinese: sentence,
+    guidance: guidanceSchema.nullable().optional(),
     grammar: z
       .object({
         hasError: z.boolean(),
@@ -27,6 +52,17 @@ export const feedbackSchema = z
 export type Feedback = z.infer<typeof feedbackSchema>;
 export function validateFeedback(input: unknown): Feedback {
   const result = feedbackSchema.parse(input);
+  if (result.guidance) {
+    if (
+      !/[A-Za-z]/.test(result.guidance.starterEnglish) ||
+      result.guidance.options.some(
+        (option) => !/\p{Script=Han}/u.test(option.chinese),
+      ) ||
+      new Set(result.guidance.options.map((option) => option.chinese)).size !==
+        result.guidance.options.length
+    )
+      throw new Error("回答引導缺少英文開頭或不同的中文選項。");
+  }
   if (
     result.grammar.hasError &&
     (!result.grammar.original.trim() ||
@@ -41,6 +77,7 @@ export const conversationInputSchema = z
   .object({
     mode: z.enum(["casual", "topic"]),
     topic: z.string().trim().max(200),
+    guided: z.boolean().default(false),
   })
   .strict()
   .refine(
@@ -51,6 +88,7 @@ export type Conversation = {
   id: string;
   mode: "casual" | "topic";
   topic: string;
+  guided: boolean;
   title: string;
   createdAt: string;
   updatedAt: string;

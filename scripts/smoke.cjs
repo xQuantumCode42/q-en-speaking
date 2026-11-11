@@ -175,6 +175,38 @@ async function fixtures() {
           explanationChinese: "這是日常對話中常見的自然表達方式。",
         },
       };
+      if (body.text.format.schema.properties.guidance) {
+        feedback.replyEnglish =
+          "That sounds relaxing. What kind of movies do you like?";
+        feedback.replyChinese = "聽起來很放鬆。你喜歡哪一類電影？";
+        feedback.guidance = {
+          starterEnglish: "I like watching…",
+          starterChinese: "我喜歡看……",
+          options: [
+            {
+              chinese: "輕鬆好笑的喜劇，可以讓我放鬆。",
+              keywords: [{ english: "comedies", chinese: "喜劇" }],
+              sampleEnglish:
+                "I like watching comedies because they help me relax.",
+              sampleChinese: "我喜歡看喜劇，因為可以讓我放鬆。",
+            },
+            {
+              chinese: "充滿想像力的科幻電影。",
+              keywords: [{ english: "science fiction", chinese: "科幻" }],
+              sampleEnglish:
+                "I like watching science fiction movies because they are imaginative.",
+              sampleChinese: "我喜歡看科幻電影，因為很有想像力。",
+            },
+            {
+              chinese: "貼近生活的劇情片，容易有共鳴。",
+              keywords: [{ english: "relate to", chinese: "產生共鳴" }],
+              sampleEnglish:
+                "I like watching dramas because I can relate to the characters.",
+              sampleChinese: "我喜歡看劇情片，因為能和角色產生共鳴。",
+            },
+          ],
+        };
+      }
       return new Response(
         "data: " +
           JSON.stringify({
@@ -333,7 +365,10 @@ async function fixtures() {
       .getByRole("button", { name: "＋ 開始新對話", exact: true })
       .click();
     await page.getByRole("button", { name: /主題對話/ }).click();
-    await page.getByRole("button", { name: /旅行探索/ }).click();
+    await page
+      .locator(".topic-grid")
+      .getByRole("button", { name: /旅行探索/ })
+      .click();
     await page.getByRole("button", { name: "開始對話 →", exact: true }).click();
     await page.getByLabel("英文訊息").fill("I like traveling.");
     await page.getByRole("button", { name: "送出 →", exact: true }).click();
@@ -393,6 +428,79 @@ async function fixtures() {
       (await page.evaluate(() => window.speakingStudio.snapshot()))
         .conversations[0].topic,
       "Weekend routines",
+    );
+    await page
+      .getByRole("button", { name: "＋ 開始新對話", exact: true })
+      .click();
+    await page.getByLabel("開啟引導式對話", { exact: true }).check();
+    await page.getByRole("button", { name: "開始對話 →", exact: true }).click();
+    await page.getByText("On weekends, I usually…", { exact: true }).waitFor();
+    await page.waitForFunction(() => {
+      const question = document.querySelector(".guided-opening h2")?.getBoundingClientRect();
+      const viewport = document.querySelector(".transcript")?.getBoundingClientRect();
+      return question && viewport && question.top >= viewport.top && question.bottom <= viewport.bottom;
+    });
+    assert.equal(await page.locator(".guidance-options button").count(), 4);
+    assert.equal(await page.locator(".guidance-advanced").count(), 0);
+    const guidedCalls = await app.evaluate(() => globalThis.aiCalls);
+    await page.screenshot({ path: path.join(directory, "guided-opening.png") });
+    await page
+      .getByRole("button", {
+        name: "回答方向：在家看電影，讓自己放鬆。",
+        exact: true,
+      })
+      .click();
+    assert.equal(await page.getByLabel("英文訊息").inputValue(), "");
+    await page.getByRole("button", { name: "進階引導", exact: true }).click();
+    await page.getByText("watch movies", { exact: true }).waitFor();
+    assert.equal(await app.evaluate(() => globalThis.aiCalls), guidedCalls);
+    await page
+      .getByLabel("英文訊息")
+      .fill("On weekends, I usually watch movies.");
+    await page.getByRole("button", { name: "送出 →", exact: true }).click();
+    await page.getByText("I like watching…", { exact: true }).waitFor();
+    assert.equal(await page.locator(".guidance-options button").count(), 3);
+    await page
+      .getByRole("button", {
+        name: "回答方向：充滿想像力的科幻電影。",
+        exact: true,
+      })
+      .click();
+    await page.getByRole("button", { name: "進階引導", exact: true }).click();
+    await page.getByText("science fiction", { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(directory, "guided-reply.png") });
+    await page.getByLabel("本次對話的引導模式").uncheck();
+    assert.equal(await page.locator(".guidance-card").count(), 0);
+    await page.getByLabel("本次對話的引導模式").check();
+    const guidedConversation = (
+      await page.evaluate(() => window.speakingStudio.snapshot())
+    ).conversations.find((item) => item.guided);
+    assert.ok(guidedConversation);
+    await app.close();
+    page = await launch();
+    snapshot = await page.evaluate(() => window.speakingStudio.snapshot());
+    assert.equal(
+      snapshot.conversations.find((item) => item.id === guidedConversation.id)
+        .guided,
+      true,
+    );
+    await page.getByText("I like watching…", { exact: true }).waitFor();
+    assert.equal(snapshot.favorites.length, 2);
+    await page
+      .getByRole("button", { name: "＋ 開始新對話", exact: true })
+      .click();
+    await page.getByRole("button", { name: /主題對話/ }).click();
+    await page
+      .locator(".topic-grid")
+      .getByRole("button", { name: /旅行探索/ })
+      .click();
+    await page.getByLabel("開啟引導式對話", { exact: true }).check();
+    await page.getByRole("button", { name: "開始對話 →", exact: true }).click();
+    await page
+      .getByText("I'm interested in this topic because…", { exact: true })
+      .waitFor();
+    console.log(
+      "PASS: guided casual/topic/opening/Chinese options/advanced hints/no autofill/no extra calls/toggle/reopen persistence",
     );
     const security = await app.evaluate(({ BrowserWindow }) => {
       const preferences =

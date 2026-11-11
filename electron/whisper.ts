@@ -70,7 +70,7 @@ export class WhisperTranscriber {
     if (this.running) throw new Error("正在轉文字，請稍候或先取消。");
     if (!this.ready)
       throw new Error(
-        "本機 Whisper 模型未就緒，請重新安裝完整的 1.0.1，或在開發環境執行 npm run setup:speech。",
+        "本機 Whisper 模型未就緒，請重新安裝完整版本，或在開發環境執行 npm run setup:speech。",
       );
     validateWave(bytes);
     this.running = true;
